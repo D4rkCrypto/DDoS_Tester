@@ -3,6 +3,7 @@ import struct
 
 ETH_P_IP = 0x0800 # Internet Protocol Packet
 
+
 def checksum(data):
     s = 0
     n = len(data) % 2
@@ -14,6 +15,7 @@ def checksum(data):
         s = (s & 0xFFFF) + (s >> 16)
     s = ~s & 0xffff
     return s
+
 
 class layer():
     pass
