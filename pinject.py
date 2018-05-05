@@ -10,7 +10,7 @@ def checksum(data):
     for i in range(0, len(data)-n, 2):
         s += ord(data[i]) + (ord(data[i+1]) << 8)
     if n:
-        s += ord(data[i+1])
+        s += ord(data[len(data)-2])
     while s >> 16:
         s = (s & 0xFFFF) + (s >> 16)
     s = ~s & 0xffff
@@ -19,6 +19,7 @@ def checksum(data):
 
 class layer():
     pass
+
 
 class ETHER(object):
     def __init__(self, src, dst, type=ETH_P_IP):
@@ -33,20 +34,22 @@ class ETHER(object):
             self.type)
         return ethernet
 
+
 class IP(object):
     def __init__(self, source, destination, payload='', proto=socket.IPPROTO_TCP):
         self.version = 4
-        self.ihl = 5 # Internet Header Length
-        self.tos = 0 # Type of Service
-        self.tl = 20+len(payload)
-        self.id = 0#random.randint(0, 65535)
-        self.flags = 0 # Don't fragment
+        self.ihl = 5    # Internet Header Length
+        self.tos = 0    # Type of Service
+        self.tl = 20 + len(payload)
+        self.id = 0     # random.randint(0, 65535)
+        self.flags = 0  # Don't fragment
         self.offset = 0
         self.ttl = 255
         self.protocol = proto
-        self.checksum = 2 # will be filled by kernel
+        self.checksum = 2   # will be filled by kernel
         self.source = socket.inet_aton(source)
         self.destination = socket.inet_aton(destination)
+
     def pack(self):
         ver_ihl = (self.version << 4) + self.ihl
         flags_offset = (self.flags << 13) + self.offset
@@ -76,6 +79,7 @@ class IP(object):
             self.source,
             self.destination)
         return ip_header
+
     def unpack(self, packet):
         _ip = layer()
         _ip.ihl = (ord(packet[0]) & 0xf) * 4
@@ -105,6 +109,7 @@ class IP(object):
             _ip.dst]
         return _ip
 
+
 class TCP(object):
     def __init__(self, srcp, dstp):
         self.srcp = srcp
@@ -123,6 +128,7 @@ class TCP(object):
         self.checksum = 0
         self.urgp = 0
         self.payload = ""
+
     def pack(self, source, destination):
         data_offset = (self.offset << 4) + 0
         flags = self.fin + (self.syn << 1) + (self.rst << 2) + (self.psh << 3) + (self.ack << 4) + (self.urg << 5)
@@ -137,7 +143,7 @@ class TCP(object):
             self.window,
             self.checksum,
             self.urgp)
-        #pseudo header fields
+        # pseudo header fields
         source_ip = source
         destination_ip = destination
         reserved = 0
@@ -151,7 +157,7 @@ class TCP(object):
             reserved,
             protocol,
             total_length)
-        psh = psh + tcp_header + self.payload
+        psh = psh + tcp_header + self.payload.encode('utf-8')
         tcp_checksum = checksum(psh)
         tcp_header = struct.pack(
             "!HHLLBBH",
@@ -164,6 +170,7 @@ class TCP(object):
             self.window)
         tcp_header += struct.pack('H', tcp_checksum) + struct.pack('!H', self.urgp)
         return tcp_header
+
     def unpack(self, packet):
         cflags = { # Control flags
             32:"U",
@@ -202,6 +209,7 @@ class TCP(object):
             _tcp.payload]
         return _tcp
 
+
 class UDP(object):
     def __init__(self, src, dst, payload=''):
         self.src = src
@@ -209,6 +217,7 @@ class UDP(object):
         self.payload = payload
         self.checksum = 0
         self.length = 8 # UDP Header length
+
     def pack(self, src, dst, proto=socket.IPPROTO_UDP):
         length = self.length + len(self.payload)
         pseudo_header = struct.pack(

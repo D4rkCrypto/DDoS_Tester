@@ -23,7 +23,7 @@ def my_parser():
 
     parser.add_argument("--file",
                         type=str,
-                        help="Specify attack file")
+                        help="Specify DRDoS server list file")
 
     if len(sys.argv) == 1:
         parser.print_usage(sys.stderr)
